@@ -141,6 +141,7 @@ pub enum ActiveFilterState {
     Active,
     Inactive,
     Failed,
+    Pinned,
 }
 
 impl ActiveFilterState {
@@ -149,7 +150,8 @@ impl ActiveFilterState {
             ActiveFilterState::All => ActiveFilterState::Active,
             ActiveFilterState::Active => ActiveFilterState::Inactive,
             ActiveFilterState::Inactive => ActiveFilterState::Failed,
-            ActiveFilterState::Failed => ActiveFilterState::All,
+            ActiveFilterState::Failed => ActiveFilterState::Pinned,
+            ActiveFilterState::Pinned => ActiveFilterState::All,
         }
     }
 
@@ -159,6 +161,7 @@ impl ActiveFilterState {
             ActiveFilterState::Active => "active",
             ActiveFilterState::Inactive => "inactive",
             ActiveFilterState::Failed => "failed",
+            ActiveFilterState::Pinned => "pinned",
         }
     }
 }
@@ -189,6 +192,7 @@ pub struct TableServices {
     usecase: Rc<RefCell<ServicesManager>>,
     filter_all: bool,
     active_filter_state: ActiveFilterState,
+    pinned_filters: Vec<String>,
     event_rx: Arc<Mutex<Receiver<QueryUnitFile>>>,
     event_tx: Arc<Sender<QueryUnitFile>>,
     active_enter_timestamp: Option<u64>,
@@ -199,7 +203,7 @@ pub struct TableServices {
 }
 
 impl TableServices {
-    pub fn new(sender: Sender<AppEvent>,  usecase: Rc<RefCell<ServicesManager>>) -> Self {
+    pub fn new(sender: Sender<AppEvent>,  usecase: Rc<RefCell<ServicesManager>>, pinned_filters: Vec<String>) -> Self {
         let (event_tx, event_rx) = mpsc::channel::<QueryUnitFile>();
         let (timestamp_request_tx, timestamp_request_rx) = mpsc::channel::<String>();
         let filter_all = false;
@@ -218,6 +222,7 @@ impl TableServices {
             usecase,
             filter_all,
             active_filter_state: ActiveFilterState::All,
+            pinned_filters,
             event_rx: Arc::new(Mutex::new(event_rx)),
             event_tx: Arc::new(event_tx),
             active_enter_timestamp: None,
@@ -433,6 +438,7 @@ impl TableServices {
                     ActiveFilterState::Active => service.state().active() == "active",
                     ActiveFilterState::Inactive => service.state().active() == "inactive",
                     ActiveFilterState::Failed => service.state().active() == "failed",
+                    ActiveFilterState::Pinned => self.matches_pinned_filter(service.name()),
                 };
 
                 name_matches && active_matches
@@ -578,6 +584,14 @@ impl TableServices {
         }
     }
 
+    fn matches_pinned_filter(&self, service_name: &str) -> bool {
+        let service_name = service_name.to_lowercase();
+
+        self.pinned_filters
+            .iter()
+            .any(|filter| service_name.contains(filter))
+    }
+
     pub fn act_on_selected_service(&mut self, action: &ServiceAction) {
         if let Some(service) = self.get_selected_service() {
             let binding_usecase = self.usecase.clone();
@@ -664,6 +678,9 @@ impl TableServices {
 
             help_text.push(Line::from(
                 "Navigate: ↑/↓ | Switch tab: ←/→ | Start: s | Stop: x | Restart: r | Enable: e | Disable: d | List all units: f | Filter: a | Mask/Unmask: m | Refresh: u | Log: v | Unit File: c | Help: ?"
+            ));
+            help_text.push(Line::from(
+                "Pinned filter comes from --pinned-filter=a,b"
             ));
         }
 
